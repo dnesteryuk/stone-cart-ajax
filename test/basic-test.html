@@ -1,0 +1,190 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, minimum-scale=1.0, initial-scale=1.0, user-scalable=yes">
+
+    <script src="../../webcomponentsjs/webcomponents-lite.js"></script>
+    <script src="../../web-component-tester/browser.js"></script>
+
+    <!-- Step 1: import the element to test -->
+    <link rel="import" href="../stone-cart-ajax.html">
+  </head>
+  <body>
+
+    <test-fixture id="SuccessRequest">
+      <template>
+        <stone-cart-ajax url="http://example.org/store/success" ids-name="item_id">
+        </stone-cart-ajax>
+      </template>
+    </test-fixture>
+
+    <test-fixture id="FailRequest">
+      <template>
+        <stone-cart-ajax url="http://example.org/store/fail" ids-name="item_id">
+        </stone-cart-ajax>
+      </template>
+    </test-fixture>
+
+    <script>
+      suite('<stone-cart-ajax>', function() {
+        function afterEvent(type) {
+          return new Promise(function(resolve, reject) {
+            ajax.addEventListener(type, function(e) {
+              resolve();
+            });
+
+            server.respond();
+          });
+        }
+
+        function timePasses(ms) {
+          return new Promise(function(resolve) {
+            window.setTimeout(function() {
+              resolve();
+            }, ms);
+          });
+        }
+
+        var server, ajax;
+
+        setup(function() {
+          server = sinon.fakeServer.create();
+          server.respondWith(
+            'PUT',
+            'http://example.org/store/success',
+            [
+              200,
+              {},
+              '{"success":true}'
+            ]
+          );
+
+          server.respondWith(
+            'PUT',
+            'http://example.org/store/fail',
+            [
+              500,
+              {},
+              '{"fail":true}'
+            ]
+          );
+        });
+
+        teardown(function() {
+          server.restore();
+        });
+
+        suite('requests', function() {
+          var xhr, requests = [];
+
+          setup(function() {
+            ajax = fixture('SuccessRequest');
+
+            xhr = sinon.useFakeXMLHttpRequest();
+
+            xhr.onCreate = function(xhr) {
+              requests.push(xhr);
+            };
+
+            ajax.push('items', {id: 10});
+            ajax.push('items', {id: 11});
+          });
+
+          teardown(function() {
+            requests = [];
+            xhr.restore();
+          });
+
+          test('does not send 2 concurrent requests', function() {
+            expect(requests.length).to.eq(1);
+          });
+
+          test('sends the second request once the first one is completed', function() {
+            requests[0].respond(200, {}, '{}');
+
+            return timePasses(1).then(function() {
+              expect(requests.length).to.eq(2);
+            });
+          });
+
+          test('does not send the second request when the first one fails', function() {
+            requests[0].respond(500, {}, '{}');
+
+            return timePasses(1).then(function() {
+              expect(requests.length).to.eq(1);
+            });
+          });
+        });
+
+        suite('when the storing succeeds', function() {
+          setup(function() {
+            ajax = fixture('SuccessRequest');
+          });
+
+          test('fires the store event with the response details', function() {
+            ajax.push('items', {id: 10});
+
+            return new Promise(function(resolve, reject) {
+              ajax.addEventListener('store', function(e) {
+                expect(e.detail.success).to.equal(true);
+
+                resolve();
+              });
+
+              server.respond();
+            });
+          });
+        });
+
+        suite('when the storing fails', function() {
+          var initialItems = [{id: 1}, {id: 2}];
+
+          setup(function() {
+            ajax = fixture('FailRequest');
+            ajax.items = initialItems;
+          });
+
+          test('fires the store event with details about the error', function() {
+            ajax.push('items', {id: 10});
+
+            return new Promise(function(resolve, reject) {
+              ajax.addEventListener('error', function(e) {
+                expect(e.detail.statusCode).to.be.equal(500);
+
+                resolve();
+              });
+
+              server.respond();
+            });
+          });
+
+          suite('on adding', function() {
+            setup(function() {
+              ajax.push('items', {id: 10});
+            });
+
+            test('resets the initial state of items', function() {
+              return afterEvent('error').then(function() {
+                expect(ajax.items.length).to.eq(2);
+              });
+            });
+          });
+
+          suite('on removing', function() {
+            setup(function() {
+              ajax.splice('items', 0, 1);
+            });
+
+            test('resets the initial state of items', function() {
+              return afterEvent('error').then(function() {
+                expect(ajax.items.length).to.eq(2);
+              });
+            });
+          });
+        });
+      });
+    </script>
+
+  </body>
+</html>

@@ -1,0 +1,231 @@
+<link rel="import" href="../polymer/polymer.html">
+<link rel="import" href="../iron-ajax/iron-ajax.html">
+
+<!--
+An element for storing the shopping cart built on top of the stone-cart element.
+-->
+
+<dom-module id="stone-cart-ajax">
+  <template>
+    <iron-ajax
+      id="xhr"
+      url="{{url}}"
+      headers="{{headers}}"
+      method="{{method}}"
+      content-type="[[contentType]]"
+      handle-as="[[handleAs]]"
+      on-response="_handleStore"
+      on-error="_handleError">
+    </iron-ajax>
+  </template>
+
+  <script>
+    Polymer({
+      is: 'stone-cart-ajax',
+
+      properties: {
+        /**
+         * The parameter name to be used as a parameter with ids of items.
+         */
+        idsName: {
+          type:  String,
+          value: 'ids'
+        },
+
+        /**
+         * The url to store items.
+         */
+        url: {
+          type: String
+        },
+
+        /**
+         * The object with HTTP request headers.
+         */
+        headers: {
+          type: Object
+        },
+
+        /**
+         * The HTTP method of the request.
+         */
+        method: {
+          type:  String,
+          value: 'PUT'
+        },
+
+        /**
+         * The content type of the request.
+         */
+        contentType: {
+          type:  String,
+          value: 'application/json'
+        },
+
+        /**
+         * Specifies how the response data should be processed.
+         * To get more details see https://elements.polymer-project.org/elements/iron-ajax#property-handleAs
+         */
+        handleAs: {
+          type:  String,
+          value: 'json'
+        },
+
+        /**
+         * The array containing the list of items in the cart.
+         * Each item has to have the id property.
+         *
+         * Example:
+         *
+         *     [{id: 10}]
+         */
+        items: {
+          type:   Array,
+          notify: true,
+          value:  function() { return []; }
+        },
+
+        /**
+         * The array containing the list of stored items.
+         * In most of type it mirrors the items array.
+         */
+        storedItems: {
+          type:  Array,
+          value: function() { return []; }
+        },
+
+        /**
+         * If true the element is restoring the previous state of items
+         * because of failed request.
+         */
+        reverting: {
+          type:   Boolean,
+          notify: true,
+          value:  false
+        }
+      },
+
+      observers: [
+        '_reset(items)',
+        '_itemsChanged(items.splices)'
+      ],
+
+      /**
+       * Schedules the storing of the cart. If there isn't any being executed request,
+       * the request for storing the cart will be send immediately. Otherwise, the cart
+       * keeps the flag to send another request once the current one has finished its execution.
+       *
+       * This approach reduces amount of requests to the server and guaranties that
+       * the current request finishes before any next request. Otherwise, the collision may appear.
+       */
+      store: function() {
+        if (this.$.xhr.loading) {
+          /**
+           * Even if a user adds a few items to his cart while there is being executed request,
+           * it is ok, because the cart sends all item ids. It means the last request sends the most
+           * fresh data.
+           */
+          this._scheduledRequest = true;
+        }
+        else {
+          this.syncWithBackend();
+        }
+      },
+
+      /**
+       * Sends the ids of selected items to the backend.
+       */
+      syncWithBackend: function() {
+        var params = {};
+
+        params[this.idsName] = this.itemIds;
+
+        // TODO: if GET, the params should be used.
+        this.$.xhr.body = params;
+        this.$.xhr.generateRequest();
+      },
+
+      /**
+       * Restores the initial state of items which the card had before the attempt to store items.
+       */
+      revert: function() {
+        this.set('reverting', true);
+
+        // Identify items which are not added successfully
+        var notStoredItems = this.items.reduce(function(memo, item) {
+          if (this.storedItems.indexOf(item) == -1) {
+            memo.push(item);
+          }
+
+          return memo;
+        }.bind(this), []);
+
+        // Rollbacks items which are not added successfully
+        notStoredItems.forEach(function(item) {
+          var index = this.items.indexOf(item);
+
+          this.splice('items', index, 1);
+        }.bind(this));
+
+        // Rollbacks items which are not removed successfully
+        this.storedItems.map(function(item) {
+          if (this.items.indexOf(item) == -1) {
+            this.push('items', item);
+          }
+        }.bind(this), []);
+
+        this.set('reverting', false);
+      },
+
+      _itemsChanged: function(splice) {
+        // Splice is undefined if it is an initial setup.
+        if (splice && !this.reverting) {
+          this.store();
+        }
+      },
+
+      _handleStore: function() {
+        this._copyStoredItems();
+        this._fireStore();
+
+        if (this._scheduledRequest) {
+          this._scheduledRequest = false;
+
+          this.syncWithBackend();
+        }
+      },
+
+      _handleError: function(e, error) {
+        this.revert();
+
+        this._fireError({
+          statusCode: this.$.xhr.lastRequest.xhr.status,
+          error:      error
+        });
+      },
+
+      /**
+       * @event store
+       */
+      _fireStore: function() {
+        this.fire('store', this.$.xhr.lastResponse);
+      },
+
+      /**
+       * @event error
+       */
+      _fireError: function(error) {
+        this.fire('error', error);
+      },
+
+      _reset: function() {
+        this._copyStoredItems();
+      },
+
+      _copyStoredItems: function() {
+        var storedItems = this.items.map(function(item) { return item });
+        this.set('storedItems', storedItems);
+      }
+    });
+  </script>
+</dom-module>
