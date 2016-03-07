@@ -7,21 +7,24 @@
     <script src="../../webcomponentsjs/webcomponents-lite.js"></script>
     <script src="../../web-component-tester/browser.js"></script>
 
-    <!-- Step 1: import the element to test -->
     <link rel="import" href="../stone-cart-ajax.html">
   </head>
   <body>
 
     <test-fixture id="SuccessRequest">
       <template>
-        <stone-cart-ajax url="http://example.org/store/success" ids-name="item_id">
+        <stone-cart-ajax
+          ids-name="item_ids"
+          url="http://example.org/store/success"
+          headers='{"custom":"header"}'
+          params='{"order_id":1}'>
         </stone-cart-ajax>
       </template>
     </test-fixture>
 
     <test-fixture id="FailRequest">
       <template>
-        <stone-cart-ajax url="http://example.org/store/fail" ids-name="item_id">
+        <stone-cart-ajax url="http://example.org/store/fail" ids-name="item_ids">
         </stone-cart-ajax>
       </template>
     </test-fixture>
@@ -51,7 +54,7 @@
         setup(function() {
           server = sinon.fakeServer.create();
           server.respondWith(
-            'PUT',
+            'POST',
             'http://example.org/store/success',
             [
               200,
@@ -61,12 +64,12 @@
           );
 
           server.respondWith(
-            'PUT',
+            'POST',
             'http://example.org/store/fail',
             [
-              500,
-              {},
-              '{"fail":true}'
+              422,
+              {'content-type': 'application/json'},
+              '{"error":"Required parameters are not supplied"}'
             ]
           );
         });
@@ -81,38 +84,73 @@
           setup(function() {
             ajax = fixture('SuccessRequest');
 
-            xhr = sinon.useFakeXMLHttpRequest();
-
-            xhr.onCreate = function(xhr) {
-              requests.push(xhr);
-            };
-
             ajax.push('items', {id: 10});
-            ajax.push('items', {id: 11});
-          });
-
-          teardown(function() {
-            requests = [];
-            xhr.restore();
           });
 
           test('does not send 2 concurrent requests', function() {
-            expect(requests.length).to.eq(1);
+            ajax.push('items', {id: 11});
+
+            expect(server.requests).to.have.length(1);
           });
 
           test('sends the second request once the first one is completed', function() {
-            requests[0].respond(200, {}, '{}');
+            ajax.push('items', {id: 11});
+
+            server.respond();
 
             return timePasses(1).then(function() {
-              expect(requests.length).to.eq(2);
+              expect(server.requests).to.have.length(2);
             });
           });
 
-          test('does not send the second request when the first one fails', function() {
-            requests[0].respond(500, {}, '{}');
+          test('indicates when the request is in flight', function() {
+            expect(ajax.sending).to.equal(true);
+
+            server.respond();
 
             return timePasses(1).then(function() {
-              expect(requests.length).to.eq(1);
+              expect(ajax.sending).to.equal(false);
+            });
+          });
+
+          suite('request details', function() {
+            var request = '';
+
+            setup(function() {
+              request = server.requests[0];
+            });
+
+            test('sends ids of items in the specified parameter', function() {
+              var params = JSON.parse(request.requestBody);
+
+              expect(params.item_ids).to.have.length(1);
+              expect(params.item_ids[0]).to.equal(10)
+            });
+
+            test('sends the request to the specified url', function() {
+              expect(request.url).to.equal('http://example.org/store/success');
+            });
+
+            test('sends the POST request by default', function() {
+              expect(request.method).to.equal('POST');
+            });
+
+            test('sends custom parameters', function() {
+              var params = JSON.parse(request.requestBody);
+
+              expect(params.order_id).to.equal(1);
+            });
+
+            test('sends custom headers', function() {
+              expect(request.requestHeaders['custom']).to.equal('header');
+            });
+
+            test('sends "application/json" content type by default', function() {
+              expect(request.requestHeaders['content-type']).to.equal('application/json;charset=utf-8');
+            });
+
+            test('specifies "application/json" content type as an accept type by default', function() {
+              expect(request.requestHeaders['accept']).to.equal('application/json');
             });
           });
         });
@@ -122,40 +160,48 @@
             ajax = fixture('SuccessRequest');
           });
 
-          test('fires the store event with the response details', function() {
+          test('fires the store event with response details', function(done) {
             ajax.push('items', {id: 10});
 
-            return new Promise(function(resolve, reject) {
-              ajax.addEventListener('store', function(e) {
-                expect(e.detail.success).to.equal(true);
+            ajax.addEventListener('store', function(e) {
+              expect(e.detail.success).to.equal(true);
 
-                resolve();
-              });
-
-              server.respond();
+              done();
             });
+
+            server.respond();
           });
         });
 
         suite('when the storing fails', function() {
-          var initialItems = [{id: 1}, {id: 2}];
-
           setup(function() {
             ajax = fixture('FailRequest');
-            ajax.items = initialItems;
+            ajax.items = [{id: 1}, {id: 2}];
           });
 
-          test('fires the store event with details about the error', function() {
+          test('fires the store event with details about an error', function(done) {
             ajax.push('items', {id: 10});
 
-            return new Promise(function(resolve, reject) {
-              ajax.addEventListener('error', function(e) {
-                expect(e.detail.statusCode).to.be.equal(500);
+            ajax.addEventListener('error', function(e) {
+              expect(e.detail.statusCode).to.equal(422);
+              expect(e.detail.response.error).to.equal('Required parameters are not supplied');
 
-                resolve();
-              });
+              done();
+            });
 
-              server.respond();
+            server.respond();
+          });
+
+          test('does not send the second request', function() {
+            ajax = fixture('FailRequest');
+
+            ajax.push('items', {id: 10});
+            ajax.push('items', {id: 11});
+
+            server.respond();
+
+            return timePasses(1).then(function() {
+              expect(server.requests).to.have.length(1);
             });
           });
 
@@ -164,9 +210,9 @@
               ajax.push('items', {id: 10});
             });
 
-            test('resets the initial state of items', function() {
+            test('reverts to the initial state of items', function() {
               return afterEvent('error').then(function() {
-                expect(ajax.items.length).to.eq(2);
+                expect(ajax.items).to.have.length(2);
               });
             });
           });
@@ -176,9 +222,9 @@
               ajax.splice('items', 0, 1);
             });
 
-            test('resets the initial state of items', function() {
+            test('reverts to the initial state of items', function() {
               return afterEvent('error').then(function() {
-                expect(ajax.items.length).to.eq(2);
+                expect(ajax.items).to.have.length(2);
               });
             });
           });
