@@ -1,8 +1,8 @@
 # Stone cart ajax
 
-It is a [Polymer-based](https://www.polymer-project.org) element for storing the shopping cart built on top of the [stone-cart](/dnesteryuk/stone-cart) element.
+It is a [Polymer-based](https://www.polymer-project.org) element for storing the shopping cart built on top of the [stone-cart](http://github.com/dnesteryuk/stone-cart) element.
 
-The documentation can be found [here](http://dnesteryuk.github.io/stone-cart/).
+The documentation can be found [here](http://dnesteryuk.github.io/stone-cart-ajax/).
 
 ## Install
 
