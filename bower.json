@@ -1,0 +1,29 @@
+{
+  "name": "stone-cart-ajax",
+  "version": "0.0.1",
+  "authors": [
+    "Dmitriy Nesteryuk <dmitriy.nesteryuk@gmail.com>"
+  ],
+  "description": "An element for storing the shopping cart built on top of the stone-cart element.",
+  "keywords": [
+    "web-component",
+    "polymer",
+    "shopping",
+    "cart"
+  ],
+  "main": "stone-cart-ajax.html",
+  "license": "https://opensource.org/licenses/MIT",
+  "homepage": "https://github.com/dnesteryuk/stone-carta-ajax",
+  "ignore": [
+    "/.*",
+    "/test/"
+  ],
+  "dependencies": {
+    "polymer": "Polymer/polymer#^1.2.0",
+    "iron-ajax": "PolymerElements/iron-ajax#^1.1.1"
+  },
+  "devDependencies": {
+    "iron-component-page": "PolymerElements/iron-component-page#^1.0.0",
+    "web-component-tester": "^4.0.0"
+  }
+}

@@ -1,0 +1,252 @@
+<link rel="import" href="../polymer/polymer.html">
+<link rel="import" href="../iron-ajax/iron-ajax.html">
+
+<!--
+An element for storing the shopping cart built on top of the stone-cart element.
+
+Example:
+
+    <stone-cart items="{{items}}"></stone-cart>
+
+    <stone-cart-ajax
+      items="{{items}}"
+      url="http://example.org/cart"
+      method="PATCH"
+      ids-name="product_ids">
+    </stone-cart-ajax>
+-->
+
+<dom-module id="stone-cart-ajax">
+  <template>
+    <iron-ajax
+      id="xhr"
+      url="[[url]]"
+      method="[[method]]"
+      headers="[[headers]]"
+      content-type="[[contentType]]"
+      handle-as="[[handleAs]]"
+      loading="{{sending}}"
+      on-response="_handleStore"
+      on-error="_handleError">
+    </iron-ajax>
+  </template>
+
+  <script>
+    Polymer({
+      is: 'stone-cart-ajax',
+
+      properties: {
+        /**
+         * The parameter name to be used as a parameter with ids of items.
+         */
+        idsName: {
+          type:  String,
+          value: 'ids'
+        },
+
+        /**
+         * The url to store items.
+         */
+        url: {
+          type: String
+        },
+
+        /**
+         * The HTTP method of the request.
+         */
+        method: {
+          type:  String,
+          value: 'POST'
+        },
+
+        /**
+         * An object with HTTP request headers.
+         */
+        headers: {
+          type: Object
+        },
+
+        /**
+         * A content type of the request.
+         */
+        contentType: {
+          type:  String,
+          value: 'application/json'
+        },
+
+        /**
+         * Parameters to be sent in the request.
+         * By default only ids of items get sent. If some additional
+         * parameters has to be sent, this property can be used for that purpose.
+         */
+        params: {
+          type:  Object,
+          value: function() {
+            return {};
+          }
+        },
+
+        /**
+         * Specifies how a response should be processed.
+         * To get more details see https://elements.polymer-project.org/elements/iron-ajax#property-handleAs
+         */
+        handleAs: {
+          type:  String,
+          value: 'json'
+        },
+
+        /**
+         * An array containing a list of items in a cart.
+         * Each item must have the id property.
+         *
+         * Example:
+         *
+         *     [{id: 10}]
+         */
+        items: {
+          type:   Array,
+          notify: true,
+          value:  function() { return []; }
+        },
+
+        /**
+         * An array containing a list of stored items.
+         * In most of cases it mirrors the items array.
+         */
+        storedItems: {
+          type:  Array,
+          value: function() { return []; }
+        },
+
+        /**
+         * If true, the request is in flight.
+         */
+        sending: {
+          type:   Boolean,
+          notify: true
+        }
+      },
+
+      observers: [
+        '_copyStoredItems(items)',
+        '_itemsChanged(items.splices)'
+      ],
+
+      /**
+       * Schedules the storing of items. If there isn't any being executed request,
+       * the request will be sent immediately. Otherwise, the element keeps a flag
+       * to send another request once the current request finishes.
+       *
+       * This approach reduces amount of requests to a server and guaranties that
+       * the current request finishes before any next requests. Otherwise, a collision may appear.
+       */
+      store: function() {
+        if (this.sending) {
+          /**
+           * Even if a user adds a few items to his cart while there is being executed request,
+           * it is ok, because the element sends all item ids. It means the last request sends the most fresh data.
+           */
+          this._scheduledRequest = true;
+        }
+        else {
+          this.syncWithBackend();
+        }
+      },
+
+      /**
+       * Sends the request to store items.
+       */
+      syncWithBackend: function() {
+        var params = {};
+
+        for (var key in this.params) {
+          if (this.params.hasOwnProperty(key)) {
+            params[key] = this.params[key];
+          }
+        }
+
+        params[this.idsName] = this.items.map(function(item) { return item.id; });
+
+        this.$.xhr.body = params;
+
+        this.$.xhr.generateRequest();
+      },
+
+      /**
+       * Reverts changes made to the items. It gets called when the request fails.
+       */
+      revert: function() {
+        this.set('items', this.storedItems);
+      },
+
+      _itemsChanged: function(splice) {
+        // Splice is undefined if it is an initial setup.
+        if (splice && !this.reverting) {
+          this.store();
+        }
+      },
+
+      _handleStore: function() {
+        this._copyStoredItems();
+        this._fireStore();
+
+        if (this._scheduledRequest) {
+          this._scheduledRequest = false;
+
+          this.syncWithBackend();
+        }
+      },
+
+      _handleError: function(e, error) {
+        this.revert();
+
+        var request = error.request;
+
+        this._fireError({
+          error:      error,
+          statusCode: request.status,
+          response:   request.xhr.response
+        });
+      },
+
+      /**
+       * Fires the `store` event when items are successfully stored.
+       * The detail property of an event keeps a response from a server.
+       *
+       * @event store
+       */
+      _fireStore: function() {
+        this.fire('store', this.$.xhr.lastResponse);
+      },
+
+      /**
+       * Fires the `error` event when the request fails.
+       * The detail property of an event keeps details of an error.
+       *
+       * Example:
+       *
+       *     var cart = document.querySelector('stone-cart-ajax');
+       *
+       *     car.addEventListener('error', function(e) {
+       *       e.detail.error // the error object
+       *       e.detail.statusCode // the status code of a response
+       *       e.detail.response // the response from a server
+       *     });
+       *
+       * Note: The response from a server is only supplied if the content type of
+       * a response matches an expected response type. The expected response type is
+       * defined via the handleAs property.
+       *
+       * @event error
+       */
+      _fireError: function(error) {
+        this.fire('error', error);
+      },
+
+      _copyStoredItems: function() {
+        var storedItems = this.items.map(function(item) { return item; });
+        this.set('storedItems', storedItems);
+      }
+    });
+  </script>
+</dom-module>
